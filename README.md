@@ -396,11 +396,11 @@ Overview of the general process:
 1. Install `apt install wireguard` or `pkg/brew install wireguard-tools` on each node
 2. Generate public and private keys locally on each node `wg genkey`+`wg pubkey`
 3. Create a `wg0.conf` WireGuard config file on the main relay server
-    - `[Interface]` Make sure to specify a CIDR range for the entire VPN subnet when defining the address the server accepts routes for `Address = 192.0.2.1/24`
+    - `[Interface]` Make sure to specify the local tunnel address(es) the server will use, e.g. `Address = 192.0.2.1/24,2001:DB8::1/64` for a dual-stack VPN subnet
     - `[Peer]` Create a peer section for every client joining the VPN, using their corresponding remote public keys
 4. Create a `wg0.conf` on each client node
-   - `[Interface]` Make sure to specify only a single IP for client peers that don't relay traffic `Address = 192.0.2.3/32`.
-   - `[Peer]` Create a peer section for each public peer not behind a NAT, make sure to specify a CIDR range for the entire VPN subnet when defining the remote peer acting as the bounce server `AllowedIPs = 192.0.2.1/24`. Make sure to specify individual IPs for remote peers that don't relay traffic and only act as simple clients `AllowedIPs = 192.0.2.3/32`.
+   - `[Interface]` Make sure to specify only the client peer's own tunnel IPs when it doesn't relay traffic, e.g. `Address = 192.0.2.3/32,2001:DB8::3/128`.
+   - `[Peer]` Create a peer section for each public peer not behind a NAT, and make sure to use IPv4 and/or IPv6 CIDRs as appropriate when defining what should route through that peer, e.g. relay server `AllowedIPs = 192.0.2.0/24,2001:DB8::/64` or simple client `AllowedIPs = 192.0.2.3/32,2001:DB8::3/128`.
 5. Start WireGuard on the main relay server with `wg-quick up /full/path/to/wg0.conf`
 6. Start WireGuard on all the client peers with `wg-quick up /full/path/to/wg0.conf`
 7. Traffic is routed from peer to peer using most specific route first over the WireGuard interface, e.g. `ping 192.0.2.3` checks for a direct route to a peer with `AllowedIPs = 192.0.2.3/32` first, then falls back to a relay server that's accepting IPs in the whole subnet
@@ -423,16 +423,25 @@ pkg install wireguard
 ```
 
 ```bash
-# to enable the kernel relaying/forwarding ability on bounce servers
+# to enable kernel forwarding on bounce servers
 echo "net.ipv4.ip_forward = 1" | sudo tee -a /etc/sysctl.conf
+echo "net.ipv6.conf.all.forwarding = 1" | sudo tee -a /etc/sysctl.conf
+# optional IPv4-specific proxy_arp example for proxy-ARP based topologies
 echo "net.ipv4.conf.all.proxy_arp = 1" | sudo tee -a /etc/sysctl.conf
 sudo sysctl -p /etc/sysctl.conf
 
-# to add iptables forwarding rules on bounce servers
+# to add IPv4 forwarding/NAT rules on bounce servers
 sudo iptables -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 sudo iptables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 sudo iptables -A FORWARD -i wg0 -o wg0 -m conntrack --ctstate NEW -j ACCEPT
 sudo iptables -t nat -A POSTROUTING -s 192.0.2.0/24 -o eth0 -j MASQUERADE
+
+# to add IPv6 forwarding rules on bounce servers
+sudo ip6tables -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+sudo ip6tables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+sudo ip6tables -A FORWARD -i wg0 -o wg0 -m conntrack --ctstate NEW -j ACCEPT
+# optional NAT66 example if you intentionally want IPv6 masquerading
+# sudo ip6tables -t nat -A POSTROUTING -s 2001:DB8::/64 -o eth0 -j MASQUERADE
 ```
 
 ### Config Creation
@@ -678,20 +687,21 @@ so consider using an abbreviation for hosts with longer names.
 
 #### `Address`
 
-Defines what address range the local node should route traffic for. Depending on whether the node is a simple client joining the VPN subnet, or a bounce server that's relaying traffic between multiple clients, this can be set to a single IP of the node itself (specified with CIDR notation), e.g. 192.0.2.3/32), or a range of IPv4/IPv6 subnets that the node can route traffic for.
+Defines what address(es) the local WireGuard interface should use. Depending on whether the node is a simple client joining the VPN subnet, or a bounce server that's relaying traffic between multiple clients, this can be set to a single IP of the node itself (specified with CIDR notation), e.g. `192.0.2.3/32` or `2001:DB8::3/128`, or to multiple IPv4/IPv6 addresses on the same interface.
 
 **Examples**
 
 * Node is a client that only routes traffic for itself  
 `Address = 192.0.2.3/32`
 
+* IPv6-only client address: `Address = 2001:DB8::3/128`
+
 * Node is a public bounce server that can relay traffic to other peers  
 When the node is acting as the public bounce server, it should set this to be the entire subnet that it can route traffic, not just a single IP for itself.
 
 `Address = 192.0.2.1/24`
 
-* You can also specify multiple subnets or IPv6 subnets like so:  
-`Address = 192.0.2.1/24,2001:DB8::/64`
+* Dual-stack example with both IPv4 and IPv6: `Address = 192.0.2.1/24,2001:DB8::1/64`
 
 #### `ListenPort`
 
@@ -886,12 +896,13 @@ This is just a standard comment in INI syntax used to help keep track of which c
 
 #### `Endpoint`
 
-Defines the publicly accessible address for a remote peer.  This should be left out for peers behind a NAT or peers that don't have a stable publicly accessible IP:PORT pair.  Typically, this only needs to be defined on the main bounce server, but it can also be defined on other public nodes with stable IPs like `public-server2` in the example config below.
+Defines the publicly accessible address for a remote peer.  This should be left out for peers behind a NAT or peers that don't have a stable publicly accessible IP:PORT pair.  Typically, this only needs to be defined on the main bounce server, but it can also be defined on other public nodes with stable IPs like `public-server2` in the example config below.  IPv6 literal endpoints are supported, but they must be wrapped in square brackets.
 
 **Examples**
 
  - Endpoint is an IP address  
 `Endpoint = 123.124.125.126:51820`  (IPv6 is also supported)
+ - Endpoint is an IPv6 address: `Endpoint = [2001:DB8::1]:51820`
  - Endpoint is a hostname/FQDN  
 `Endpoint = public-server1.example-vpn.tld:51820`
 
@@ -907,8 +918,12 @@ When deciding how to route a packet, the system chooses the most specific route 
  - peer is a simple client that only accepts traffic to/from itself  
 `AllowedIPs = 192.0.2.3/32`
 
+ - peer is a simple client with an IPv6 tunnel address: `AllowedIPs = 2001:DB8::3/128`
+
  - peer is a relay server that can bounce VPN traffic to all other peers  
 `AllowedIPs = 192.0.2.1/24`
+
+ - peer is a relay server for a dual-stack VPN subnet: `AllowedIPs = 192.0.2.0/24,2001:DB8::/64`
 
  - peer is a relay server that bounces all internet & VPN traffic (like a proxy), including IPv6  
 `AllowedIPs = 0.0.0.0/0,::/0`
@@ -952,13 +967,20 @@ If the connection is going from a NAT-ed peer to a public peer, the node behind 
 
 ### IPv6
 
-The examples in these docs primarily use IPv4, but WireGuard natively supports IPv6 CIDR notation and addresses everywhere that it supports IPv4, simply add them as you would any other subnet range or address.
+The examples in these docs primarily use IPv4, but WireGuard is layer-3 only and natively supports both IPv4 and IPv6, including v4-in-v6 and v6-in-v4. In practice, the important patterns are:
+
+- `Address` accepts IPv6 interface addresses such as `2001:DB8::3/128`
+- `AllowedIPs` accepts IPv6 CIDRs such as `2001:DB8::/64` and the IPv6 default route `::/0`
+- `Endpoint` accepts IPv6 literals, but they must be wrapped in square brackets, e.g. `[2001:DB8::1]:51820`
+- the `proxy_arp` line shown in the Setup section is IPv4-specific; IPv6 forwarding uses `net.ipv6.conf.all.forwarding = 1`
+
+See the [WireGuard whitepaper](https://www.wireguard.com/papers/wireguard.pdf), [`wg(8)`](https://man7.org/linux/man-pages/man8/wg.8.html), and [`wg-quick(8)`](https://man7.org/linux/man-pages/man8/wg-quick.8.html).
 
 **Example**
 
 ```ini
 [Interface]
-Address = 192.0.2.3/24, 2001:DB8::/64
+Address = 192.0.2.3/32, 2001:DB8::3/128
 
 [Peer]
 ...
