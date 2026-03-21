@@ -148,7 +148,7 @@ Whether living behind the Great Wall of China or just trying to form a network b
  - fast (low latency and line-rate bandwidth)
  - modern encryption, secure by default with forward secrecy & resilience to downgrade attacks
  - ideally support for any type of Level 2 and control traffic, e.g. ARP/DHCP/ICMP (or ideally raw ethernet frames), not just TCP/HTTP
- - ability to join the VPN from Ubuntu, FreeBSD, iOS, MacOS, Windows, Android (via open-source apps or natively)
+ - ability to join the VPN from Ubuntu, FreeBSD, iOS, MacOS, Windows, Android, and some Chromebooks (via apps or native clients)
  - supports both running on the host routing traffic for docker or running in a docker container routing for the host
 
 **Things WireGuard does not do:**
@@ -421,6 +421,8 @@ pkg install wireguard
 # install on iOS/Android using Apple App Store/Google Play Store
 # install on other systems using https://www.wireguard.com/install/#installation
 ```
+
+ChromeOS note: some Chromebooks have basic built-in WireGuard support in the VPN settings UI, where you can add a connection and select `Provider type: WireGuard`. ChromeOS also documents `VPN.Type = WireGuard` in its ONC format for managed or imported network configs. Under the hood, ChromiumOS implements this as a built-in WireGuard client backed by the kernel module and documents a kernel `5.4+` requirement. See [Google's Chromebook VPN setup guide](https://support.google.com/chromebook/answer/1282338?hl=en#zippy=%2Cwireguard-support), the [Chromium ONC spec](https://chromium.googlesource.com/chromium/src/+/main/components/onc/docs/onc_spec.md#WireGuard-connections-and-types), and the [ChromiumOS VPN implementation notes](https://chromium.googlesource.com/chromiumos/platform2/+/HEAD/shill/doc/vpn.md#built_in_wireguard_vpn).
 
 ```bash
 # to enable the kernel relaying/forwarding ability on bounce servers
