@@ -1310,6 +1310,56 @@ PersistentKeepalive = 21
 
 For more details see the Further Reading: Docker section below.
 
+#### Example Firecracker MicroVM Setup
+
+If you want to run application code inside a Firecracker microVM, the simplest stable pattern is usually to keep WireGuard on the host, attach the microVM to the host with a TAP device, and route a dedicated subnet from `wg0` into the guest. Firecracker networking is host-managed: the Firecracker Go SDK supports Linux TAP devices or CNI-created TAP-backed interfaces, and `firectl` exposes this directly via `--tap-device`. `wg-quick` only provides interface lifecycle hooks (`PreUp`, `PostUp`, `PreDown`, `PostDown`), so "launch a VM when a peer connects" requires a separate control-plane or supervisor, not just a WireGuard config. [Firecracker Go SDK networking docs](https://github.com/firecracker-microvm/firecracker-go-sdk) / [firectl](https://github.com/firecracker-microvm/firectl) / [wg-quick(8)](https://man7.org/linux/man-pages/man8/wg-quick.8.html)
+
+If you want to study a more opinionated end-to-end design, [distvirt](https://github.com/hansihe/distvirt) is an experimental project that combines Firecracker microVMs with WireGuard ingress and on-demand activation.
+
+**Host setup:**
+```bash
+ip tuntap add dev fc-tap0 mode tap
+ip addr add 172.31.200.1/24 dev fc-tap0
+ip link set fc-tap0 up
+
+sysctl -w net.ipv4.ip_forward=1
+
+iptables -A FORWARD -i wg0 -o fc-tap0 -j ACCEPT
+iptables -A FORWARD -i fc-tap0 -o wg0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+```
+
+If you also want the guest to reach the public internet through the host, add a NAT rule on the host's external interface:
+
+```bash
+iptables -t nat -A POSTROUTING -s 172.31.200.0/24 -o eth0 -j MASQUERADE
+```
+
+**Launch the microVM:**
+```bash
+firectl \
+  --kernel=vmlinux \
+  --root-drive=rootfs.ext4 \
+  --tap-device=fc-tap0/06:00:ac:10:c8:02
+```
+
+**Guest setup:**
+```bash
+ip addr add 172.31.200.2/24 dev eth0
+ip link set eth0 up
+ip route add default via 172.31.200.1
+```
+
+**WireGuard client route to the guest subnet:**
+```ini
+[Peer]
+Endpoint = relay1.wg.example.com:51820
+PublicKey = zJNKewtL3gcHdG62V3GaBkErFtapJWsAx+2um0c0B1s=
+AllowedIPs = 192.0.2.1/24,172.31.200.0/24
+PersistentKeepalive = 21
+```
+
+That keeps WireGuard termination and peer authentication on the host while forwarding decrypted traffic into the Firecracker guest. If you want *all* client traffic to go through the guest, replace the guest subnet above with `0.0.0.0/0` (and `::/0` for IPv6) and make the host/guest forwarding and NAT policy explicit.
+
 ---
 
 # Further Reading
