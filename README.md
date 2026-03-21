@@ -717,15 +717,14 @@ This key can be generated with `wg genkey > example.key`
 
 #### `DNS`
 
-The DNS server(s) to announce to VPN clients via DHCP, most clients will use this server for DNS requests over the VPN, but clients can also override this value locally on their nodes
+This is a `wg-quick` convenience option for the local machine, not a WireGuard setting that is announced or pushed to peers. In `wg-quick`, IP entries are applied as DNS servers for the local interface via `resolvconf`, and non-IP entries are treated as DNS search domains. See [wg-quick(8)](https://man7.org/linux/man-pages/man8/wg-quick.8.html) and the [WireGuard for Windows parser](https://git.zx2c4.com/wireguard-windows/tree/conf/parser.go).
 
 **Examples**
 
-* The value can be left unconfigured to use the system's default DNS servers
-* A single DNS server can be provided  
-`DNS = 1.1.1.1`
-* or multiple DNS servers can be provided  
-`DNS = 1.1.1.1,8.8.8.8`
+* The value can be left unconfigured to use the system's default DNS handling
+* A single DNS server can be provided: `DNS = 1.1.1.1`
+* Multiple DNS servers can be provided: `DNS = 1.1.1.1,8.8.8.8`
+* A DNS server and search domain can be provided: `DNS = 10.0.0.2, internal.example.com`
 
 #### `Table`
 
