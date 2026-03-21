@@ -898,18 +898,18 @@ Defines the publicly accessible address for a remote peer.  This should be left 
 
 #### `AllowedIPs`
 
-This defines the IP ranges for which a peer will route traffic.  On simple clients, this is usually a single address (the VPN address of the simple client itself). For bounce servers this will be a range of the IPs or subnets that the relay server is capable of routing traffic for.  Multiple IPs and subnets may be specified using comma-separated IPv4 or IPv6 CIDR notation (from a single /32 or /128 address, all the way up to `0.0.0.0/0` and `::/0` to indicate a default route to send all internet and VPN traffic through that peer).  This option may be specified multiple times.
+This defines which IP prefixes the local node associates with a peer in WireGuard's cryptokey routing table. When sending, the local node uses the destination IP to choose which peer to encrypt to. When receiving, it only accepts a decrypted packet from that peer if the packet's source IP matches one of that peer's `AllowedIPs`. This mapping is local to the machine that owns the config; it is not dynamically advertised to other peers. See [WireGuard's cryptokey routing overview](https://www.wireguard.com/) and the [WireGuard whitepaper](https://www.wireguard.com/papers/wireguard.pdf).
 
-When deciding how to route a packet, the system chooses the most specific route first, and falls back to broader routes. So for a packet destined to `192.0.2.3`, the system would first look for a peer advertising `192.0.2.3/32` specifically, and would fall back to a peer advertising `192.0.2.1/24` or a larger range like `0.0.0.0/0` as a last resort.
+On simple clients, this is usually a single address (the VPN address of the peer itself) or a small routed prefix. On bounce servers, this may be a broader range of IPs or subnets that should be routed back to that peer. Multiple IPs and subnets may be specified using comma-separated IPv4 or IPv6 CIDR notation (from a single /32 or /128 address, all the way up to `0.0.0.0/0` and `::/0` to indicate a default route to send all internet and VPN traffic through that peer). If you need "internet passthrough but no peer-to-peer access", treat `AllowedIPs` as address mapping and source validation, and enforce any additional forwarding policy separately on the machine that would route the traffic.
+
+When deciding how to route a packet, the system chooses the most specific route first, and falls back to broader routes. So for a packet destined to `192.0.2.3`, the system would first look for a peer configured with `192.0.2.3/32` specifically, and would fall back to a peer configured with `192.0.2.1/24` or a larger range like `0.0.0.0/0` as a last resort.
 
 **Examples**
 
 
- - peer is a simple client that only accepts traffic to/from itself  
-`AllowedIPs = 192.0.2.3/32`
+ - peer is a simple client that only represents its own tunnel IP: `AllowedIPs = 192.0.2.3/32`
 
- - peer is a relay server that can bounce VPN traffic to all other peers  
-`AllowedIPs = 192.0.2.1/24`
+ - peer is a relay server that routes the VPN subnet for downstream peers: `AllowedIPs = 192.0.2.1/24`
 
  - peer is a relay server that bounces all internet & VPN traffic (like a proxy), including IPv6  
 `AllowedIPs = 0.0.0.0/0,::/0`
