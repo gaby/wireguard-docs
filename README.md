@@ -111,6 +111,7 @@ See https://github.com/pirate/wireguard-docs for example code and documentation 
 <li><a href="#Forwarding-All-Traffic">Forwarding All Traffic</a></li>
 <li><a href="#NAT-to-NAT-Connections">NAT-to-NAT Connections</a></li>
 <li><a href="#Dynamic-IP-Allocation">Dynamic IP Allocation</a></li>
+<li><a href="#Platform-Capture-Technologies">Platform Capture Technologies</a></li>
 <li><a href="#Other-WireGuard-Implementations">Other WireGuard Implementations</a></li>
 <li><a href="#WireGuard-Setup-tools">WireGuard Setup Tools</a></li>
 <li><a href="#Config-Shortcuts">Config Shortcuts</a></li>
@@ -1117,6 +1118,22 @@ You can also build a dynamic allocation system yourself by reading in IP values 
 ...
 PostUp = wg set %i allowed-ips /etc/wireguard/wg0.key <(some command)
 ```
+
+### Platform Capture Technologies
+
+When people ask what WireGuard uses for packet capture, the answer depends on the platform and backend. The WireGuard protocol stays the same, but the local interface plumbing is different on each OS.
+
+- **Linux**: on standard Linux installs, WireGuard is the kernel implementation exposed as a normal network interface; the official [quick start](https://www.wireguard.com/quickstart/) uses `ip link add dev wg0 type wireguard`, and the official [install matrix](https://www.wireguard.com/install/) ships Linux distributions as `module`/`tools` packages. `/dev/net/tun` belongs to the userspace [`wireguard-go`](https://git.zx2c4.com/wireguard-go/about/) path instead; its Linux TUN implementation opens [`/dev/net/tun`](https://git.zx2c4.com/wireguard-go/tree/tun/tun_linux.go).
+
+- **Windows**: the official [WireGuard for Windows](https://git.zx2c4.com/wireguard-windows/about/) client uses [WireGuardNT](https://git.zx2c4.com/wireguard-nt/about/), not Wintun. Upstream documents describe WireGuardNT as a [kernel driver](https://git.zx2c4.com/wireguard-windows/about/docs/attacksurface.md), the app [README](https://git.zx2c4.com/wireguard-windows/tree/README.md) says it "uses WireGuardNT", and the current service code logs the active [WireGuardNT driver version](https://git.zx2c4.com/wireguard-windows/tree/tunnel/service.go) while only removing [legacy Wintun adapters](https://git.zx2c4.com/wireguard-windows/tree/driver/wintunremoval_windows.go). If you embed the generic userspace [`wireguard-go`](https://git.zx2c4.com/wireguard-go/about/) backend on Windows instead, that backend creates a [Wintun interface](https://git.zx2c4.com/wireguard-go/tree/tun/tun_windows.go).
+
+- **macOS / iOS**: the official Apple app is a [`NEPacketTunnelProvider`](https://git.zx2c4.com/wireguard-apple/tree/Sources/WireGuardNetworkExtension/PacketTunnelProvider.swift) network extension. Its [`WireGuardAdapter`](https://git.zx2c4.com/wireguard-apple/tree/Sources/WireGuardKit/WireGuardAdapter.swift) locates the system `utun` file descriptor and passes it to `wgTurnOn`, so packets flow through the Apple Network Extension / `utun` path rather than `/dev/net/tun`.
+
+- **Android**: the official Android app [opportunistically uses the kernel implementation and falls back to userspace `wireguard-go`](https://git.zx2c4.com/wireguard-android/tree/README.md). In source, [`Application.determineBackend()`](https://git.zx2c4.com/wireguard-android/tree/ui/src/main/java/com/wireguard/android/Application.kt) picks the kernel `WgQuickBackend` when support is present and otherwise uses [`GoBackend`](https://git.zx2c4.com/wireguard-android/tree/tunnel/src/main/java/com/wireguard/android/backend/GoBackend.java); that userspace backend creates the tunnel with Android `VpnService.Builder.establish()` and passes the resulting TUN file descriptor to `wgTurnOn`.
+
+- **Other Unix-like systems**: the official [install matrix](https://www.wireguard.com/install/) is the quickest way to tell which path a platform uses. Entries marked `module` or `kmod` indicate native kernel support, while entries marked `userspace go` use the TUN-oriented [`wireguard-go`](https://git.zx2c4.com/wireguard-go/about/) model described in the official [cross-platform interface docs](https://www.wireguard.com/xplatform/).
+
+So "Windows uses Wintun" and "Linux uses `/dev/net/tun`" are accurate for the generic userspace backend, but they do not describe the default official Windows client or a standard Linux kernel deployment. See the upstream [Windows app README](https://git.zx2c4.com/wireguard-windows/tree/README.md), the [Linux quick start](https://www.wireguard.com/quickstart/), and the [`wireguard-go` TUN sources for Linux](https://git.zx2c4.com/wireguard-go/tree/tun/tun_linux.go) and [Windows](https://git.zx2c4.com/wireguard-go/tree/tun/tun_windows.go).
 
 ### Other WireGuard Implementations
 
