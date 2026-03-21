@@ -142,20 +142,20 @@ Whether living behind the Great Wall of China or just trying to form a network b
 
  - minimal config, low tunable surface area and sane defaults
  - minimal key management work needed, just 1 public & 1 private key per host
- - behaves like a normal ethernet interface, behaves well with standard kernel packet routing rules
+ - behaves like a normal network interface, behaves well with standard kernel packet routing rules
  - ability to easily create a LAN like 192.0.2.0/24 between all servers, or more complex networks using custom routes
- - ability to some traffic or all traffic to/through arbitrary hosts on the VPN LAN
+ - ability to route some traffic or all traffic to/through arbitrary hosts on the VPN LAN
  - robust automatic reconnects after reboots / network downtime / NAT connection table drops
  - fast (low latency and line-rate bandwidth)
  - modern encryption, secure by default with forward secrecy & resilience to downgrade attacks
- - ideally support for any type of Level 2 and control traffic, e.g. ARP/DHCP/ICMP (or ideally raw ethernet frames), not just TCP/HTTP
- - ability to join the VPN from Ubuntu, FreeBSD, iOS, MacOS, Windows, Android, and some Chromebooks (via apps or native clients)
+ - supports normal IP traffic, including ICMP, not just TCP/HTTP
+ - ability to join the VPN from Ubuntu, FreeBSD, iOS, macOS, Windows, Android, and some Chromebooks (via apps or native clients)
  - supports both running on the host routing traffic for docker or running in a docker container routing for the host
 
 **Things WireGuard does not do:**
 
 - form a self-healing mesh network where nodes automatically gossip with neighbors
-- break through double NATs with a signalling server (WebRTC-style)
+- include its own signalling/discovery layer for double-NAT traversal (WebRTC-style)
 - handle automatically distributing & revoking keys through a central authority
 - allow sending raw layer-2 ethernet frames (it's at the IP layer)
 
@@ -185,7 +185,7 @@ But you can write your own solutions for these problems using WireGuard under th
 ### VPN Setup Tools
 
  - [Algo](https://github.com/trailofbits/algo) WireGuard setup tool
- - [Striesand](https://github.com/StreisandEffect/streisand) Multi-protocol setup tool
+ - [Streisand](https://github.com/StreisandEffect/streisand) Multi-protocol setup tool
  - [IKEv2-setup](https://github.com/jawj/IKEv2-setup) IKEv2 server setup script
  - [WireGuard-Manager](https://github.com/complexorganizations/wireguard-manager) WireGuard setup tool, all in one
 
@@ -235,10 +235,10 @@ A group of IPs separate from the public internet, e.g. 192.0.2.1-255 or 192.168.
 
 A way of defining a subnet and its size with a "mask", a smaller mask = more  address bits usable by the subnet & more IPs in the range. Most common ones:
   + `192.0.2.1/32` (a single IP address, `192.0.2.1`) netmask = `255.255.255.255`
-  + `192.0.2.1/24` (255 IPs from `192.0.2.0`-`192.0.2.255`) netmask = ` 255.255.255.0`
+  + `192.0.2.1/24` (256 addresses from `192.0.2.0`-`192.0.2.255`) netmask = `255.255.255.0`
   + `192.0.2.1/16` (65,536 IPs from `192.0.0.0` - `192.0.255.255`) netmask = `255.255.0.0`
   + `192.0.2.1/8` (16,777,216 IPs from `192.0.0.0` - `192.255.255.255`) netmask = `255.0.0.0`
-  + `0.0.0.1/0` (4,294,967,296 IPs from `0.0.0.0` - `255.255.255.255`) netmask = `0.0.0.0`
+  + `0.0.0.0/0` (4,294,967,296 addresses from `0.0.0.0` - `255.255.255.255`) netmask = `0.0.0.0`
   + IPv6 CIDR notation is also supported e.g. `2001:DB8::/64`
  
 [Classless Inter-Domain Routing (CIDR)](https://en.wikipedia.org/wiki/Classless_Inter-Domain_Routing)
@@ -250,7 +250,7 @@ A subnet with private IPs provided by a router standing in front of them doing N
 
 ### Public Endpoint
 
-The publicly accessible address:port for a node, e.g. `123.124.125.126:1234` or `some.domain.tld:1234` (must be accessible via the public internet, generally can't be a private IP like `192.0.2.1` or `192.168.1.1` unless it's directly accessible using that address by other peers on the same subnet).
+The publicly accessible address:port for a node, e.g. `123.124.125.126:1234` or `some.domain.tld:1234` (must be accessible via the public internet, generally can't be a private IP like `10.0.0.1` or `192.168.1.1` unless it's directly accessible using that address by other peers on the same subnet).
 
 
 ### Private key
@@ -273,13 +273,13 @@ Domain Name Server, used to resolve hostnames to IPs for VPN clients, instead of
 
 ### How Public Relay Servers Work
 
-Public relays are just normal VPN peers that are able to act as an intermediate relay server between any VPN clients behind NATs, they can forward any VPN subnet traffic they receive to the correct peer at the system level (WireGuard doesn't care how this happens, it's handled by the kernel `net.ipv4.ip_forward = 1` and the iptables routing rules).
+Public relays are just normal VPN peers that are able to act as an intermediate relay server between any VPN clients behind NATs, they can forward any VPN subnet traffic they receive to the correct peer at the system level (WireGuard doesn't care how this happens, it's handled by kernel IP forwarding plus whatever firewall/NAT rules your host needs).
 
 If all peers are publicly accessible, you don't have to worry about special treatment to make one of them a relay server, it's only needed if you have any peers connecting from behind a NAT.
 
 Each client only needs to define the publicly accessible servers/peers in its config, any traffic bound to other peers behind NATs will go to the catchall VPN subnet (e.g. `192.0.2.1/24`) in the public relays `AllowedIPs` route and will be forwarded accordingly once it hits the relay server.
 
-In summary: only direct connections between clients should be configured, any connections that need to be bounced should not be defined as peers, as they should head to the bounce server first and be routed from there back down the vpn to the correct client.
+In summary: only direct connections between clients should be configured, any connections that need to be bounced should not be defined as peers, as they should head to the bounce server first and be routed from there back down the VPN to the correct client.
 
 **Important: traffic bounced through a relay server is not end-to-end encrypted between the two NAT-ed peers.** The relay server decrypts incoming traffic from one peer and re-encrypts it with the destination peer's key before forwarding. This means the relay server can see the plaintext VPN traffic passing through it. Each hop (A↔Relay, Relay↔B) is independently encrypted, but the relay acts as a trusted intermediary that performs [Cryptokey Routing](https://www.wireguard.com/#cryptokey-routing) to match the decrypted packet's destination IP to the correct peer. For more details, see the [WireGuard whitepaper](https://www.wireguard.com/papers/wireguard.pdf) and [Pro Custodibus's explanation of hub-and-spoke E2EE limitations](https://www.procustodibus.com/blog/2021/12/wireguard-e2ee-hub-and-spoke/). If end-to-end encryption between NAT-ed peers is required, consider using an application-level encryption layer (e.g. TLS) on top of WireGuard, or a solution like [Tailscale's DERP relays](https://tailscale.com/blog/how-tailscale-works) which forward opaque encrypted packets without decrypting them.
 
@@ -290,11 +290,11 @@ More complex topologies are definitely achievable, but these are the basic routi
 - **Direct node-to-node**  
   In the simplest case, the nodes will either be on the same LAN or both be publicly accessible. Define directly accessible nodes with hardcoded `Endpoint` addresses and ports so that WireGuard can connect straight to the open port and route UDP packets without intermediate hops.
 - **Node behind local NAT to public node**  
-  When 1 of the 2 parties is behind remote NAT (e.g. when a laptop behind NAT connects to `public-server2`), define the publicly accessible node with a hardcoded `Endpoint` and the NAT-ed node without. The connection will be opened from NAT client -> public client, then traffic will route directly between them in both directions as long as the connection is kept alive by outgoing `PersistentKeepalive` pings from the NAT-ed client.
+  When 1 of the 2 parties is behind remote NAT (e.g. when a laptop behind NAT connects to `public-server2`), define the publicly accessible node with a hardcoded `Endpoint` and the NAT-ed node without. The connection will be opened from NAT client -> public client, then traffic will route directly between them in both directions as long as the connection is kept alive by outgoing `PersistentKeepalive` packets from the NAT-ed client.
 - **Node behind local NAT to node behind remote NAT (via relay)**  
   Most of the time when both parties are behind NATs, the NATs do source port randomization making direct connections infeasible, so they will both have to open a connection to `public-server1`, and traffic will forward through the intermediary bounce server as long as the connections are kept alive.
 - **Node behind local NAT to node behind remote NAT (via UDP NAT hole-punching)**  
-  While sometimes possible, it's generally infeasible to do direct NAT-to-NAT connections on modern networks, because most NAT routers are quite strict about randomizing the source port, making it impossible to coordinate an open port for both sides ahead of time.  Instead, a signaling server (STUN) must be used that stands in the middle and communicates which random source ports are assigned to the other side. Both clients make an initial connection to the public signaling server, then it records the random source ports and sends them back to the clients. This is how WebRTC works in modern P2P web apps.  Even with a signalling server and known source ports for both ends, sometimes direct connections are not possible because the NAT routers are strict about only accepting traffic from the original destination address (the signalling server), and will require a new random source port to be opened to accept traffic from other IPs (e.g. the other client attempting to use the originally communicated source port). This is especially true for "carrier-grade NATs" like cellular networks and some enterprise networks, which are designed specifically to prevent this sort of hole-punching connection. See the full section below on [**NAT to NAT Connections**](#NAT-to-NAT-Connections) for more information.
+  While sometimes possible, it's generally infeasible to do direct NAT-to-NAT connections on modern networks, because many NAT routers randomize source ports or otherwise restrict unsolicited return traffic. A more advanced solution needs some external signaling/discovery component to tell each side what public IP:port tuple the other side currently appears to have, and even then success still depends on the NAT behavior of both networks. This is roughly the role played by STUN/ICE-style tooling in systems like WebRTC, but plain WireGuard does not include that machinery by itself. See the full section below on [**NAT to NAT Connections**](#NAT-to-NAT-Connections) for more information.
 
 More specific (also usually more direct) routes provided by other peers will take precedence when available, otherwise traffic will fall back to the least specific route and use the `192.0.2.1/24` catchall to forward traffic to the bounce server, where it will in turn be routed by the relay server's system routing table (`net.ipv4.ip_forward = 1`) back down the VPN to the specific peer that's accepting routes for that traffic.  WireGuard does not automatically find the fastest route or attempt to form direct connections between peers if not already defined, it just goes from the most specific route in `[Peers]` to least specific.
 
@@ -382,9 +382,8 @@ You can also read in keys from a file or via command if you don't want to hardco
 PreUp = wg set %i private-key <(cat /some/path/%i/privkey)
 ```
 
-Technically, multiple servers can share the same private key as long as clients arent connected to two servers with the same key simulatenously.
-An example of a scenario where this is a reasonable setup is if you're using round-robin DNS to load-balance connections between two servers that are pretending to be a single server.
-Most of the time however, every peer should have its own public/private keypair so that peers can't read eachothers traffic and can be individually revoked.
+Multiple servers should not share the same private key. WireGuard's protocol assumes distinct peers use distinct private keys, and reusing one can cause replay-related problems and involuntary endpoint roaming between those machines. See the [WireGuard whitepaper discussion of timestamp/replay behavior](https://www.wireguard.com/papers/wireguard.pdf).
+Most of the time, every peer should have its own public/private keypair so that peers can be individually identified and revoked.
 
 ---
 
@@ -410,8 +409,7 @@ Overview of the general process:
 
 ```bash
 # install on Ubuntu
-sudo add-apt-repository ppa:wireguard/wireguard
-apt install wireguard
+sudo apt install wireguard
 
 # install on macOS
 brew install wireguard-tools
@@ -449,7 +447,7 @@ sudo ip6tables -A FORWARD -i wg0 -o wg0 -m conntrack --ctstate NEW -j ACCEPT
 
 ### Config Creation
 ```bash
-nano wg0.conf  # can be placed anywhere, must be referred to using absolute path (usually placed in /etc/wireguard/wg0.conf on most Linux systems)
+nano wg0.conf  # can be placed anywhere as long as the filename matches the interface name (often /etc/wireguard/wg0.conf)
 ```
 
 ### Key Generation
@@ -553,13 +551,6 @@ To follow logs:
 dmesg -wH
 ```
 
-Systems with modern kernel and Safe Boot might require disabling Secure Boot DKMS Signature Verification to allow access to kernel logs.
-```bash
-mokutil --disable-verification
-reboot
-```
-
-
 ### Testing
 
 #### Ping Speed
@@ -624,7 +615,7 @@ dig example.com A
 WireGuard config is in [INI syntax](https://en.wikipedia.org/wiki/INI_file), defined in a file usually called `wg0.conf`.  It can be placed anywhere on the system, but is often placed in `/etc/wireguard/wg0.conf`.  
 
 The config path is specified as an argument when running any `wg-quick` command, e.g:  
-`wg-quick up /etc/wireguard/wg0.conf` (always specify the full, absolute path)
+`wg-quick up /etc/wireguard/wg0.conf`
 
 The config file name must be in the format `${name of the new WireGuard interface}.conf`. WireGuard interface names are typically prefixed with `wg` and numbered starting at `0`, but you can use any name that matches the regex `^[a-zA-Z0-9_=+.-]{1,15}$`.
 
@@ -710,7 +701,7 @@ When the node is acting as the public bounce server, it should use an address in
 
 #### `ListenPort`
 
-When the node is acting as a public bounce server, it should hardcode a port to listen for incoming VPN connections from the public internet.  Clients not acting as relays should not set this value.
+When the node is acting as a public bounce server, it should hardcode a port to listen for incoming VPN connections from the public internet. Clients that are not acting as relays usually do not need to set this value, but they still can if they want a fixed local UDP port.
 
 **Examples**
 
@@ -804,7 +795,7 @@ This option can appear multiple times, as with <a href="#PreUp">PreUp</a>
 * Add an iptables rule to enable packet forwarding on the WireGuard interface  
 `PostUp   = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE`
 
-* Force WireGuard to re-resolve IP address for peer domain  
+* Configure `systemd-resolved` DNS settings for this interface
 `PostUp = resolvectl domain %i "~."; resolvectl dns %i 192.0.2.1; resolvectl dnssec %i yes`
 
 #### `PreDown`
@@ -842,9 +833,9 @@ This option can appear multiple times, as with <a href="#PreUp">PreUp</a>
 
 Defines the VPN settings for a remote peer capable of routing traffic for one or more addresses (itself and/or other peers). Peers can be either a public bounce server that relays traffic to other peers, or a directly accessible client via LAN/internet that is not behind a NAT and only routes traffic for itself.
 
-All clients must be defined as peers on the public bounce server. Simple clients that only route traffic for themselves, only need to define peers for the public relay, and any other nodes directly accessible.  Nodes that are behind separate NATs should _not_ be defined as peers outside of the public server config, as no direct route is available between separate NATs. Instead, nodes behind NATs should only define the public relay servers and other public clients as their peers, and should specify `AllowedIPs = 192.0.2.1/24` on the public server that accepts routes and bounces traffic for the VPN subnet to the remote NAT-ed peers.  Traffic destined for a NAT-ed peer that isn't directly defined will match the relay server's broad `AllowedIPs` range, be encrypted to the relay server, and then be decrypted and re-encrypted by the relay for delivery to the final destination peer (see the [security note above](#how-public-relay-servers-work) about relay traffic not being end-to-end encrypted).
+In the simple relay topology used throughout this README, all clients are defined as peers on the public bounce server. Simple clients that only route traffic for themselves only need to define peers for the public relay and any other nodes that are directly reachable. Nodes behind separate NATs are usually not defined as peers of each other in this topology, because traffic between them is expected to go through the public relay instead. In that setup, NAT-ed nodes point their relay peer at a broader subnet such as `AllowedIPs = 192.0.2.1/24` on the public server. Traffic destined for a NAT-ed peer that is not directly defined will match the relay server's broad `AllowedIPs` range, be encrypted to the relay server, and then be decrypted and re-encrypted by the relay for delivery to the final destination peer (see the [security note above](#how-public-relay-servers-work) about relay traffic not being end-to-end encrypted).
 
-In summary, all nodes must be defined on the main bounce server.  On client servers, only peers that are directly accessible from a node should be defined as peers of that node, any peers that must be relayed by a bounce server should be left out and will be handled by the relay server's catchall route.
+In summary, all nodes must be defined on the main bounce server. On client nodes, only peers that are directly accessible from a node should be defined as peers of that node, and any peers that must be relayed by a bounce server should be left out and handled by the relay server's catchall route.
 
 In the configuration outlined in the docs below, a single server `public-server1` acts as the relay bounce server for a mix of publicly accessible and NAT-ed clients, and peers are configured on each node accordingly:
 
@@ -994,8 +985,7 @@ AllowedIPs = 0.0.0.0/0, ::/0
 
 If you want to forward *all* internet traffic through the VPN, and not just use it as a server-to-server subnet, you can add `0.0.0.0/0, ::/0` to the `AllowedIPs` definition of the peer you want to pipe your traffic through.
 
-Make sure to also specify an IPv6 catchall even when only forwarding IPv4 traffic in order to avoid leaking IPv6 packets outside the VPN, see:  
-https://www.reddit.com/r/WireGuard/comments/b0m5g2/ipv6_leaks_psa_for_anyone_here_using_wireguard_to/
+If the client also has IPv6 connectivity and you want *all* traffic to go through the VPN, include the IPv6 catchall `::/0` too. Otherwise, IPv6 traffic can still bypass the tunnel even if IPv4 is routed through it.
 
 **Example**
 
@@ -1028,7 +1018,7 @@ See the official [wireguard-tools `nat-hole-punching` example](https://git.zx2c4
 
 #### The hole-punching connection process
 
- 1. Peer1 sends a UDP packet to Peer2, it's rejected Peer2's NAT router immediately, but that's ok, the only purpose was to get Peer1's NAT to start forwarding any expected UDP responses back to Peer1 behind its NAT
+ 1. Peer1 sends a UDP packet to Peer2, it's rejected by Peer2's NAT router immediately, but that's ok, the only purpose was to get Peer1's NAT to start forwarding any expected UDP responses back to Peer1 behind its NAT
  2. Peer2 sends a UDP packet to Peer1, it's accepted and forwarded to Peer1 as Peer1's NAT server is already expecting responses from Peer2 because of the initial outgoing packet
  3. Peer1 sends a UDP response to Peer2's packet, it's accepted and forwarded by Peer2's NAT server as it's also expecting responses because of the initial outgoing packet 
 
@@ -1040,19 +1030,15 @@ Getting this to work when both end-points are behind NATs or firewalls requires 
 
 #### Drawbacks and limitations
 
-As of 2019, many of the old hole-punching methods used that used to work are no longer effective.  One example was a novel method pioneered by [pwnat](https://github.com/samyk/pwnat) that faked an ICMP Time Exceeded response from outside the NAT to get a packet back through to a NAT'ed peer, thereby leaking its own source port. Hardcoding UDP ports and public IPs for both sides of a NAT-to-NAT connection (as described above) still works on a small percentage of networks. Generally the more "enterprisey" a network is, the less likely you'll be able to hole punch public UDP ports (commercial public Wi-Fi and cell data NATs often don't work for example). 
+Many of the older hole-punching methods described in old blog posts are no longer effective on modern networks. One example was a novel method pioneered by [pwnat](https://github.com/samyk/pwnat) that faked an ICMP Time Exceeded response from outside the NAT to get a packet back through to a NAT'ed peer, thereby leaking its own source port. Hardcoding UDP ports and public IPs for both sides of a NAT-to-NAT connection (as described above) still works on a small percentage of networks. Generally the more "enterprisey" a network is, the less likely you'll be able to hole punch public UDP ports (commercial public Wi-Fi and cell data NATs often don't work for example).
 
 ##### Source port randomization
 
-NAT-to-NAT connections are not possible if all endpoints are behind NAT's with strict UDP source port randomization (e.g. most cellular data networks).  Since neither side is able to hardcode a `ListenPort` and guarantee that their NAT will accept traffic on that port after the outgoing ping, you cannot coordinate a port for the initial hole-punch between peers and connections will fail.  For this reason, you generally cannot do phone-to-phone connections on LTE/3g networks, but you might be able to do phone-to-office or phone-to-home where the office or home has a stable public IP and doesn't do source port randomization.
+The static/manual approach described here is generally not possible if all endpoints are behind NATs with strict UDP source port randomization (for example, many cellular data networks). Since neither side is able to hardcode a `ListenPort` and guarantee that its NAT will accept traffic on that port after the outgoing packet, you cannot coordinate a port for the initial hole-punch between peers and the connection will fail. For this reason, phone-to-phone connections on LTE/3G are usually not feasible with this simple approach, but phone-to-office or phone-to-home may still work when the office or home has a stable public IP and doesn't do source port randomization.
 
 ##### Using a signaling server
 
-A signaling server can improve the odds by telling each side the other's current public IP:PORT tuple, but it still depends on the NAT behavior of both networks.  Here are a few implementations that do this for WireGuard:
-
-- https://github.com/takutakahashi/wg-connect
-- https://git.zx2c4.com/wireguard-tools/tree/contrib/nat-hole-punching/
-- https://github.com/jwhited/wgsd
+A signaling server can improve the odds by telling each side the other's current public IP:PORT tuple, but it still depends on the NAT behavior of both networks. The official [wireguard-tools `nat-hole-punching` example](https://git.zx2c4.com/wireguard-tools/tree/contrib/nat-hole-punching/) demonstrates the basic approach.
 
 ##### Dynamic IP addresses
 If a peer's public IP changes, WireGuard can learn the new endpoint from authenticated packets sent by that peer, but DNS hostnames are not continuously polled in the background. If you depend on Dynamic DNS `Endpoint` hostnames being refreshed proactively, you may need external tooling; the official wireguard-tools repo includes [`reresolve-dns.sh`](https://git.zx2c4.com/wireguard-tools/tree/contrib/reresolve-dns/) for exactly this purpose.
@@ -1071,7 +1057,7 @@ NAT-to-NAT connections are often more unstable and have other limitations, which
  - https://stackoverflow.com/questions/8892142/udp-hole-punching-algorithm
  - https://stackoverflow.com/questions/12359502/udp-hole-punching-not-going-through-on-3g
  - https://stackoverflow.com/questions/11819349/udp-hole-punching-not-possible-with-mobile-provider
- - https://github.com/WireGuard/WireGuard/tree/master/contrib/examples/nat-hole-punching
+ - https://git.zx2c4.com/wireguard-tools/tree/contrib/nat-hole-punching/
  - https://staaldraad.github.io/2017/04/17/nat-to-nat-with-wireguard/
  - https://golb.hplar.ch/2019/01/expose-server-vpn.html
  - https://www.jordanwhited.com/posts/wireguard-endpoint-discovery-nat-traversal/
@@ -1151,7 +1137,7 @@ An incomplete, insecure userspace implementation of WireGuard written in Haskell
 
 - Platform-specific WireGuard apps: [wireguard-ios](https://git.zx2c4.com/wireguard-ios/about/), [wireguard-android](https://git.zx2c4.com/wireguard-android/about/), [wireguard-windows](https://git.zx2c4.com/wireguard-windows/about/)
 
-All of the userspace implementations are slower than the native C version that runs in kernel-land, but provide other benefits by running in userland (e.g. easier containerization, compatibility, etc.).
+Userspace implementations are generally slower than native kernel implementations, but they provide other benefits (e.g. easier containerization, portability, compatibility on platforms without a kernel module, etc.).
 
 ### WireGuard Setup Tools
 
@@ -1266,7 +1252,7 @@ AllowedIPs = 192.0.2.2/32
 
 #### Example Client Container Setup
 
-In this example *all* the traffic from inside the `speedtest` container will go through the wireguard VPN.
+In this example *all* the traffic from inside the `vpn_test` container will go through the wireguard VPN.
 To only route some traffic, replace `0.0.0.0/0` in `wg0.conf` below with the subnet ranges you want to route via the VPN.
 
 **`docker-compose.yml`:**
