@@ -627,20 +627,22 @@ The config file name must be in the format `${name of the new WireGuard interfac
 
 Config files can opt to use the limited set of `wg` config options, or the more extended `wg-quick` options, depending on what command is preferred to start WireGuard.  These docs recommend sticking to `wg-quick` as it provides a more powerful and user-friendly config experience.
 
+The core `wg(8)` config format covers peer/session state such as `PrivateKey`, `ListenPort`, `FwMark`, `PublicKey`, `PresharedKey`, `AllowedIPs`, `Endpoint`, and `PersistentKeepalive`. The convenience keys `Address`, `DNS`, `Table`, `MTU`, `PreUp`, `PostUp`, `PreDown`, and `PostDown` below are `wg-quick(8)` extensions. See [wg(8)](https://man7.org/linux/man-pages/man8/wg.8.html) and [wg-quick(8)](https://man7.org/linux/man-pages/man8/wg-quick.8.html).
+
 **Jump to definition:**
 
 ¶ <a href="#Interface">`[Interface]`</a>  
 ¶ <a href="#-Name">`# Name = node1.example.tld`</a>  
-¶ <a href="#Address">`Address = 192.0.2.3/32`</a>  
+¶ <a href="#Address">`Address = 192.0.2.3/32`</a> (wg-quick only)<br/>
 ¶ <a href="#ListenPort">`ListenPort = 51820`</a>  
 ¶ <a href="#PrivateKey">`PrivateKey = localPrivateKeyAbcAbcAbc=`</a>  
-¶ <a href="#DNS-2">`DNS = 1.1.1.1,8.8.8.8`</a>  
-¶ <a href="#Table">`Table = 12345`</a>  
-¶ <a href="#MTU">`MTU = 1420`</a>  
-¶ <a href="#PreUp">`PreUp = /bin/example arg1 arg2 %i`</a>  
-¶ <a href="#PostUp">`PostUp = /bin/example arg1 arg2 %i`</a>  
-¶ <a href="#PreDown">`PreDown = /bin/example arg1 arg2 %i`</a>  
-¶ <a href="#PostDown">`PostDown = /bin/example arg1 arg2 %i`</a>  
+¶ <a href="#DNS-2">`DNS = 1.1.1.1,8.8.8.8`</a> (wg-quick only)<br/>
+¶ <a href="#Table">`Table = 12345`</a> (wg-quick only)<br/>
+¶ <a href="#MTU">`MTU = 1420`</a> (wg-quick only)<br/>
+¶ <a href="#PreUp">`PreUp = /bin/example arg1 arg2 %i`</a> (wg-quick only)<br/>
+¶ <a href="#PostUp">`PostUp = /bin/example arg1 arg2 %i`</a> (wg-quick only)<br/>
+¶ <a href="#PreDown">`PreDown = /bin/example arg1 arg2 %i`</a> (wg-quick only)<br/>
+¶ <a href="#PostDown">`PostDown = /bin/example arg1 arg2 %i`</a> (wg-quick only)<br/>
 
 
 ¶ <a href="#Peer">`[Peer]`</a>  
@@ -727,15 +729,14 @@ This key can be generated with `wg genkey > example.key`
 
 #### `DNS`
 
-The DNS server(s) to announce to VPN clients via DHCP, most clients will use this server for DNS requests over the VPN, but clients can also override this value locally on their nodes
+This is a `wg-quick` convenience option for the local machine, not a WireGuard setting that is announced or pushed to peers. In `wg-quick`, IP entries are applied as DNS servers for the local interface via `resolvconf`, and non-IP entries are treated as DNS search domains. See [wg-quick(8)](https://man7.org/linux/man-pages/man8/wg-quick.8.html) and the [WireGuard for Windows parser](https://git.zx2c4.com/wireguard-windows/tree/conf/parser.go).
 
 **Examples**
 
-* The value can be left unconfigured to use the system's default DNS servers
-* A single DNS server can be provided  
-`DNS = 1.1.1.1`
-* or multiple DNS servers can be provided  
-`DNS = 1.1.1.1,8.8.8.8`
+* The value can be left unconfigured to use the system's default DNS handling
+* A single DNS server can be provided: `DNS = 1.1.1.1`
+* Multiple DNS servers can be provided: `DNS = 1.1.1.1,8.8.8.8`
+* A DNS server and search domain can be provided: `DNS = 10.0.0.2, internal.example.com`
 
 #### `Table`
 
@@ -908,20 +909,20 @@ Defines the publicly accessible address for a remote peer.  This should be left 
 
 #### `AllowedIPs`
 
-This defines the IP ranges for which a peer will route traffic.  On simple clients, this is usually a single address (the VPN address of the simple client itself). For bounce servers this will be a range of the IPs or subnets that the relay server is capable of routing traffic for.  Multiple IPs and subnets may be specified using comma-separated IPv4 or IPv6 CIDR notation (from a single /32 or /128 address, all the way up to `0.0.0.0/0` and `::/0` to indicate a default route to send all internet and VPN traffic through that peer).  This option may be specified multiple times.
+This defines which IP prefixes the local node associates with a peer in WireGuard's cryptokey routing table. When sending, the local node uses the destination IP to choose which peer to encrypt to. When receiving, it only accepts a decrypted packet from that peer if the packet's source IP matches one of that peer's `AllowedIPs`. This mapping is local to the machine that owns the config; it is not dynamically advertised to other peers. See [WireGuard's cryptokey routing overview](https://www.wireguard.com/) and the [WireGuard whitepaper](https://www.wireguard.com/papers/wireguard.pdf).
 
-When deciding how to route a packet, the system chooses the most specific route first, and falls back to broader routes. So for a packet destined to `192.0.2.3`, the system would first look for a peer advertising `192.0.2.3/32` specifically, and would fall back to a peer advertising `192.0.2.1/24` or a larger range like `0.0.0.0/0` as a last resort.
+On simple clients, this is usually a single address (the VPN address of the peer itself) or a small routed prefix. On bounce servers, this may be a broader range of IPs or subnets that should be routed back to that peer. Multiple IPs and subnets may be specified using comma-separated IPv4 or IPv6 CIDR notation (from a single /32 or /128 address, all the way up to `0.0.0.0/0` and `::/0` to indicate a default route to send all internet and VPN traffic through that peer). If you need "internet passthrough but no peer-to-peer access", treat `AllowedIPs` as address mapping and source validation, and enforce any additional forwarding policy separately on the machine that would route the traffic.
+
+When deciding how to route a packet, the system chooses the most specific route first, and falls back to broader routes. So for a packet destined to `192.0.2.3`, the system would first look for a peer configured with `192.0.2.3/32` specifically, and would fall back to a peer configured with `192.0.2.1/24` or a larger range like `0.0.0.0/0` as a last resort.
 
 **Examples**
 
 
- - peer is a simple client that only accepts traffic to/from itself  
-`AllowedIPs = 192.0.2.3/32`
+ - peer is a simple client that only represents its own tunnel IP: `AllowedIPs = 192.0.2.3/32`
 
  - peer is a simple client with an IPv6 tunnel address: `AllowedIPs = 2001:DB8::3/128`
 
- - peer is a relay server that can bounce VPN traffic to all other peers  
-`AllowedIPs = 192.0.2.1/24`
+ - peer is a relay server that can bounce VPN traffic to all other peers  `AllowedIPs = 192.0.2.1/24`
 
  - peer is a relay server for a dual-stack VPN subnet: `AllowedIPs = 192.0.2.0/24,2001:DB8::/64`
 
